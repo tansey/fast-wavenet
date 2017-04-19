@@ -1,8 +1,12 @@
+#!/usr/bin/env python
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from layers import (_causal_linear, _output_linear, conv1d,
                     dilated_conv1d)
+from tfsdp.models import MultinomialLayer, LocallySmoothedMultiscaleLayer
 
 
 class Model(object):
@@ -13,7 +17,9 @@ class Model(object):
                  num_blocks=2,
                  num_layers=14,
                  num_hidden=128,
-                 gpu_fraction=1.0):
+                 gpu_fraction=1.0,
+                 prob_model_type='softmax',
+                 ):
         
         self.num_time_samples = num_time_samples
         self.num_channels = num_channels
@@ -22,6 +28,7 @@ class Model(object):
         self.num_layers = num_layers
         self.num_hidden = num_hidden
         self.gpu_fraction = gpu_fraction
+        self.prob_model_type = prob_model_type
         
         inputs = tf.placeholder(tf.float32,
                                 shape=(None, num_time_samples, num_channels))
@@ -42,29 +49,36 @@ class Model(object):
                          gain=1.0,
                          activation=None,
                          bias=True)
+        raw_outputs_shape = tf.shape(outputs)
+        outputs = tf.reshape(outputs, [-1, num_classes])
+        if prob_model_type == 'softmax':
+            self.prob_model = MultinomialLayer(outputs, num_classes, num_classes, one_hot=False)
+        elif prob_model_type == 'sdp':
+            self.prob_model = LocallySmoothedMultiscaleLayer(outputs, num_classes, num_classes, one_hot=False, k=1, lam=0.001)
 
-        costs = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            outputs, targets)
-        cost = tf.reduce_mean(costs)
 
-        train_step = tf.train.AdamOptimizer(learning_rate=0.001).minimize(cost)
+        train_step = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.prob_model.train_loss)
 
         gpu_options = tf.GPUOptions(
             per_process_gpu_memory_fraction=gpu_fraction)
         sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-        sess.run(tf.initialize_all_variables())
+        sess.run(tf.global_variables_initializer())
 
         self.inputs = inputs
         self.targets = targets
         self.outputs = outputs
         self.hs = hs
-        self.costs = costs
-        self.cost = cost
+        # self.costs = costs
+        self.cost = self.prob_model.test_loss
         self.train_step = train_step
         self.sess = sess
 
     def _train(self, inputs, targets):
         feed_dict = {self.inputs: inputs, self.targets: targets}
+        if self.prob_model_type == 'softmax':
+            feed_dict[self.prob_model._labels] = targets.T
+        elif self.prob_model_type == 'sdp':
+            self.prob_model.fill_train_dict(feed_dict, targets.T)
         cost, _ = self.sess.run(
             [self.cost, self.train_step],
             feed_dict=feed_dict)
@@ -82,7 +96,10 @@ class Model(object):
             losses.append(cost)
             if i % 50 == 0:
                 plt.plot(losses)
-                plt.show()
+                plt.savefig('plots/training_{}.pdf'.format(self.prob_model_type), bbox_inches='tight')
+                plt.close()
+            else:
+                print i
 
 
 class Generator(object):
