@@ -14,9 +14,12 @@ def time_to_batch(inputs, rate):
       outputs: (tensor)
       pad_left: (int)
     '''
-    _, width, num_channels = inputs.get_shape().as_list()
+    # _, width, num_channels = inputs.get_shape().as_list()
+    inputs_shape = tf.shape(inputs)
+    width = inputs_shape[1]
+    num_channels = inputs_shape[2]
 
-    width_pad = int(rate * np.ceil((width + rate) * 1.0 / rate))
+    width_pad = tf.to_int32(rate * tf.ceil((tf.to_float(width) + rate) * 1.0 / rate))
     pad_left = width_pad - width
 
     perm = (1, 0, 2)
@@ -81,9 +84,11 @@ def conv1d(inputs,
     Outputs:
       outputs:
     '''
-    in_channels = inputs.get_shape().as_list()[-1]
+    in_channels = inputs.get_shape().as_list()
+    print in_channels
+    in_channels = tf.shape(inputs)[-1]
 
-    stddev = gain / np.sqrt(filter_width**2 * in_channels)
+    stddev = gain / tf.sqrt(filter_width**2 * tf.to_float(in_channels))
     w_init = tf.random_normal_initializer(stddev=stddev)
 
     w = tf.get_variable(name='w',
@@ -134,15 +139,18 @@ def dilated_conv1d(inputs,
     '''
     assert name
     with tf.variable_scope(name):
-        _, width, _ = inputs.get_shape().as_list()
+        # _, width, _ = inputs.get_shape().as_list()
+        width = tf.shape(inputs)[1]
         inputs_ = time_to_batch(inputs, rate=rate)
+        print inputs_
         outputs_ = conv1d(inputs_,
                           out_channels=out_channels,
                           filter_width=filter_width,
                           padding=padding,
                           gain=gain,
                           activation=activation)
-        _, conv_out_width, _ = outputs_.get_shape().as_list()
+        # _, conv_out_width, _ = outputs_.get_shape().as_list()
+        conv_out_width = tf.shape(outputs)[1]
         new_width = conv_out_width * rate
         diff = new_width - width
         outputs = batch_to_time(outputs_, rate=rate, crop_left=diff)

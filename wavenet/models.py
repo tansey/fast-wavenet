@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+'''
+Code below adapted from fast-wavenet:
+
+https://github.com/tomlepaine/fast-wavenet
+'''
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -11,7 +16,7 @@ from tfsdp.models import MultinomialLayer, LocallySmoothedMultiscaleLayer
 
 class Model(object):
     def __init__(self,
-                 num_time_samples,
+                 # num_time_samples,
                  num_channels=1,
                  num_classes=256,
                  num_blocks=2,
@@ -21,7 +26,7 @@ class Model(object):
                  prob_model_type='softmax',
                  ):
         
-        self.num_time_samples = num_time_samples
+        # self.num_time_samples = num_time_samples
         self.num_channels = num_channels
         self.num_classes = num_classes
         self.num_blocks = num_blocks
@@ -31,8 +36,8 @@ class Model(object):
         self.prob_model_type = prob_model_type
         
         inputs = tf.placeholder(tf.float32,
-                                shape=(None, num_time_samples, num_channels))
-        targets = tf.placeholder(tf.int32, shape=(None, num_time_samples))
+                                shape=(None, None, num_channels))
+        # targets = tf.placeholder(tf.int32, shape=(None, num_time_samples))
 
         h = inputs
         hs = []
@@ -54,7 +59,7 @@ class Model(object):
         if prob_model_type == 'softmax':
             self.prob_model = MultinomialLayer(outputs, num_classes, num_classes, one_hot=False)
         elif prob_model_type == 'sdp':
-            self.prob_model = LocallySmoothedMultiscaleLayer(outputs, num_classes, num_classes, one_hot=False, k=1, lam=0.001)
+            self.prob_model = LocallySmoothedMultiscaleLayer(outputs, num_classes, num_classes, one_hot=False, k=1, lam=0)
 
 
         train_step = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.prob_model.train_loss)
@@ -65,7 +70,7 @@ class Model(object):
         sess.run(tf.global_variables_initializer())
 
         self.inputs = inputs
-        self.targets = targets
+        # self.targets = targets
         self.outputs = outputs
         self.hs = hs
         # self.costs = costs
@@ -74,7 +79,7 @@ class Model(object):
         self.sess = sess
 
     def _train(self, inputs, targets):
-        feed_dict = {self.inputs: inputs, self.targets: targets}
+        feed_dict = {self.inputs: inputs}
         if self.prob_model_type == 'softmax':
             feed_dict[self.prob_model._labels] = targets.T
         elif self.prob_model_type == 'sdp':
